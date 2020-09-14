@@ -4,6 +4,7 @@ import socket
 import re
 from datetime import datetime, timedelta
 import select
+import ifaddr
 
 DISCOVER_TIMEOUT = 2
 SSDP_TARGET = ("239.255.255.250", 1900)
@@ -87,7 +88,7 @@ def scan(timeout=5):
 
 
 def get_all_address():
-    return [addr[-1][0] for addr in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
+    return list(set(addr.ip for iface in ifaddr.get_adapters() for addr in iface.ips if addr.is_IPv4))
 
 
 def discover(timeout=5):
