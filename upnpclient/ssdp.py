@@ -13,9 +13,15 @@ ST_ALL = "ssdp:all"
 ST_ROOTDEVICE = "upnp:rootdevice"
 
 
-class Entry(object):
-    def __init__(self, location):
-        self.location = location
+class SSDPResponse(object):
+    # TODO: Build SSDPRespnse class, with which we can access
+    # the attributes from the response
+    def __init__(self, response):
+        self.response = response
+        self._parse_response()
+
+    def parse_response(self):
+        pass
 
 
 def ssdp_request(ssdp_st, ssdp_mx=SSDP_MX):
@@ -30,6 +36,7 @@ def ssdp_request(ssdp_st, ssdp_mx=SSDP_MX):
 
 
 def scan(timeout=5):
+    # TODO: Comment this crazy code
     urls = []
     sockets = []
     ssdp_requests = [ssdp_request(ST_ALL), ssdp_request(ST_ROOTDEVICE)]
@@ -77,8 +84,9 @@ def scan(timeout=5):
                     sock.close()
                     continue
                 locations = re.findall(r"LOCATION: *(?P<url>\S+)\s+", response, re.IGNORECASE)
+                # TODO: Shouldn't there exist only ONE location?!
                 if locations and len(locations) > 0:
-                    urls.append(Entry(locations[0]))
+                    urls.append(SSDPResponse(locations[0]))
 
     finally:
         for s in sockets:
@@ -88,6 +96,9 @@ def scan(timeout=5):
 
 
 def get_all_address():
+    '''
+    Getting ipv4 addresses of local interfaces
+    '''
     return list(set(addr.ip for iface in ifaddr.get_adapters() for addr in iface.ips if addr.is_IPv4))
 
 
