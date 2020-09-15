@@ -108,10 +108,14 @@ class Device(CallActionMixin):
         )
         resp.raise_for_status()
 
-        root = etree.fromstring(resp.content)
-        findtext = partial(root.findtext, namespaces=root.nsmap)
+        # Ignore an error while parsing an continue.
+        # Happened to me due to a malformed URI on my Denon Receiver...
+        recovery_parser = etree.XMLParser(recover=True)
+        root = etree.fromstring(resp.content, parser=recovery_parser)
+        # Default if findtext failes is now a nil string ('')
+        # We can keep the .strip() because of that
+        findtext = partial(root.findtext, namespaces=root.nsmap, default='')
 
-        # TODO: Fix all strips! Strip won't work if the attribute is not present in the xml!
         self.device_type = findtext('device/deviceType').strip()
         self.friendly_name = findtext('device/friendlyName').strip()
         self.manufacturer = findtext('device/manufacturer').strip()
@@ -122,9 +126,8 @@ class Device(CallActionMixin):
         self.serial_number = findtext('device/serialNumber').strip()
         self.udn = findtext('device/UDN').strip()
 
-        # Just removed strip from here
-        self._url_base = findtext('URLBase')
-        if self._url_base is None or ignore_urlbase:
+        self._url_base = findtext('URLBase').strip()
+        if self._url_base == '' or ignore_urlbase:
             # If no URL Base is given, the UPnP specification says: "the base
             # URL is the URL from which the device description was retrieved"
             self._url_base = self.location
@@ -192,8 +195,7 @@ class Device(CallActionMixin):
     def from_ssdp_response(ssdp_response, **kwargs):
         return Device(
             location=ssdp_response.location,
-            ssdp_response=ssdp_response,
-            **kwargs
+            ssdp_response=ssdp_response
         )
 
     def find_action(self, action_name):

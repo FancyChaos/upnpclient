@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timedelta
 import select
 import ifaddr
-import re
+from urllib.parse import urlparse
 
 DISCOVER_TIMEOUT = 2
 SSDP_TARGET = ("239.255.255.250", 1900)
@@ -19,18 +19,16 @@ class SSDPResponse(object):
     def __init__(self, response):
         self.response = response
         self.values = {
-            attr.lower(): value
+            attr.strip().lower(): value.strip()
             for attr, value
             in RESPONSE_REGEX.findall(response)
         }
 
     def __repr__(self):
-        # TODO: Only show ip from location
-        # do that with urlparse
         return "<SSDPResponse from '{location}'>".format(
-            location=self.location
+            location=urlparse(self.location).netloc
         )
-    
+
     def __str__(self):
         return self.response
 
@@ -96,8 +94,13 @@ def scan(timeout=5):
     for addr in get_all_address():
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL,
-                            SSDP_MX)
+            # TTL is used for how many hops the packet can do before getting discarded.
+            # Default values for multicast is '1' so they won't escape the LAN.
+            # So this setting is complety obsolete and wrong!
+            # Can someone confirm before discarding the code?
+            #
+            # sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL,
+            #                SSDP_MX)
             sock.bind((addr, 0))
             sockets.append(sock)
         except socket.error:
@@ -134,12 +137,12 @@ def scan(timeout=5):
                     sockets.remove(sock)
                     sock.close()
                     continue
-                
+
                 # Create a SSDPResponse object and append to list if
-                # location is not already the same of another response
-                resp = SSDPResponse(response)
-                if resp.location not in [x.location for x in ssdp_responses]:
-                    ssdp_responses.append(resp)
+                # location is not already the same as of another response
+                ssdp_resp = SSDPResponse(response)
+                if ssdp_resp.location not in [resp.location for resp in ssdp_responses]:
+                    ssdp_responses.append(ssdp_resp)
 
     finally:
         for s in sockets:
@@ -152,7 +155,9 @@ def get_all_address():
     '''
     Getting ipv4 addresses of local interfaces
     '''
-    return list(set(addr.ip for iface in ifaddr.get_adapters() for addr in iface.ips if addr.is_IPv4))
+    return list(set(
+        addr.ip for iface in ifaddr.get_adapters() for addr in iface.ips if addr.is_IPv4)
+    )
 
 
 def discover(timeout=5):
@@ -166,10 +171,10 @@ def discover(timeout=5):
     devices = []
     for resp in ssdp_responses:
         try:
-            dev = Device.from_ssdp_response(resp)
+            dev = Device.from_ssdp_response(ssdp_response=resp)
             devices.append(dev)
         except Exception as err:
             log = _getLogger("ssdp")
-            log.error('Error \'%s\' for %s', exc, entry)
+            log.error('Error \'%s\' for %s', err, resp.location)
 
     return devices
