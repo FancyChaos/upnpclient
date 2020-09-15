@@ -5,23 +5,74 @@ import re
 from datetime import datetime, timedelta
 import select
 import ifaddr
+import re
 
 DISCOVER_TIMEOUT = 2
 SSDP_TARGET = ("239.255.255.250", 1900)
 SSDP_MX = DISCOVER_TIMEOUT
 ST_ALL = "ssdp:all"
 ST_ROOTDEVICE = "upnp:rootdevice"
+RESPONSE_REGEX = re.compile(r'\n(.*?)\: *(.*)\r')
 
 
 class SSDPResponse(object):
-    # TODO: Build SSDPRespnse class, with which we can access
-    # the attributes from the response
     def __init__(self, response):
         self.response = response
-        self._parse_response()
+        self.values = {
+            attr.lower(): value
+            for attr, value
+            in RESPONSE_REGEX.findall(response)
+        }
 
-    def parse_response(self):
-        pass
+    def __repr__(self):
+        # TODO: Only show ip from location
+        # do that with urlparse
+        return "<SSDPResponse from '{location}'>".format(
+            location=self.location
+        )
+    
+    def __str__(self):
+        return self.response
+
+    @property
+    def cachecontrol(self):
+        return self.values.get('cache-control', '')
+
+    @property
+    def date(self):
+        return self.values.get('date', '')
+
+    @property
+    def ext(self):
+        return self.values.get('ext', '')
+
+    @property
+    def location(self):
+        return self.values.get('location', '')
+
+    @property
+    def opt(self):
+        return self.values.get('opt', '')
+
+    @property
+    def nls(self):
+        return self.values.get('01-nls', '')
+
+    @property
+    def server(self):
+        return self.values.get('server', '')
+
+    @property
+    def xuseragent(self):
+        return self.values.get('x-user-agent', '')
+
+    @property
+    def st(self):
+        return self.values.get('st', '')
+
+    @property
+    def usn(self):
+        return self.values.get('usn', '')
 
 
 def ssdp_request(ssdp_st, ssdp_mx=SSDP_MX):
@@ -37,7 +88,7 @@ def ssdp_request(ssdp_st, ssdp_mx=SSDP_MX):
 
 def scan(timeout=5):
     # TODO: Comment this crazy code
-    urls = []
+    ssdp_responses = []
     sockets = []
     ssdp_requests = [ssdp_request(ST_ALL), ssdp_request(ST_ROOTDEVICE)]
     stop_wait = datetime.now() + timedelta(seconds=timeout)
@@ -83,16 +134,18 @@ def scan(timeout=5):
                     sockets.remove(sock)
                     sock.close()
                     continue
-                locations = re.findall(r"LOCATION: *(?P<url>\S+)\s+", response, re.IGNORECASE)
-                # TODO: Shouldn't there exist only ONE location?!
-                if locations and len(locations) > 0:
-                    urls.append(SSDPResponse(locations[0]))
+                
+                # Create a SSDPResponse object and append to list if
+                # location is not already the same of another response
+                resp = SSDPResponse(response)
+                if resp.location not in [x.location for x in ssdp_responses]:
+                    ssdp_responses.append(resp)
 
     finally:
         for s in sockets:
             s.close()
 
-    return set(urls)
+    return ssdp_responses
 
 
 def get_all_address():
@@ -108,13 +161,15 @@ def discover(timeout=5):
     list of `upnp.Device` instances. Any invalid servers are silently
     ignored.
     """
-    devices = {}
-    for entry in scan(timeout):
-        if entry.location in devices:
-            continue
+    ssdp_responses = scan(timeout)
+
+    devices = []
+    for resp in ssdp_responses:
         try:
-            devices[entry.location] = Device(entry.location)
-        except Exception as exc:
+            dev = Device.from_ssdp_response(resp)
+            devices.append(dev)
+        except Exception as err:
             log = _getLogger("ssdp")
             log.error('Error \'%s\' for %s', exc, entry)
-    return list(devices.values())
+
+    return devices

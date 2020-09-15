@@ -84,7 +84,7 @@ class Device(CallActionMixin):
     """
     def __init__(
             self, location, device_name=None, ignore_urlbase=False,
-            http_auth=None, http_headers=None):
+            http_auth=None, http_headers=None, ssdp_response=None):
         """
         Create a new Device instance. `location` is an URL to an XML file
         describing the server's services.
@@ -98,6 +98,8 @@ class Device(CallActionMixin):
         self.http_auth = http_auth
         self.http_headers = http_headers
 
+        self.ssdp_response = ssdp_response
+
         resp = requests.get(
           location,
           timeout=HTTP_TIMEOUT,
@@ -109,6 +111,7 @@ class Device(CallActionMixin):
         root = etree.fromstring(resp.content)
         findtext = partial(root.findtext, namespaces=root.nsmap)
 
+        # TODO: Fix all strips! Strip won't work if the attribute is not present in the xml!
         self.device_type = findtext('device/deviceType').strip()
         self.friendly_name = findtext('device/friendlyName').strip()
         self.manufacturer = findtext('device/manufacturer').strip()
@@ -119,7 +122,8 @@ class Device(CallActionMixin):
         self.serial_number = findtext('device/serialNumber').strip()
         self.udn = findtext('device/UDN').strip()
 
-        self._url_base = findtext('URLBase').strip()
+        # Just removed strip from here
+        self._url_base = findtext('URLBase')
         if self._url_base is None or ignore_urlbase:
             # If no URL Base is given, the UPnP specification says: "the base
             # URL is the URL from which the device description was retrieved"
@@ -183,6 +187,14 @@ class Device(CallActionMixin):
                 '%s: Service %r at %r', self.device_name, svc.service_type, svc.scpd_url)
             self.services.append(svc)
             self.service_map[svc.name] = svc
+
+    @staticmethod
+    def from_ssdp_response(ssdp_response, **kwargs):
+        return Device(
+            location=ssdp_response.location,
+            ssdp_response=ssdp_response,
+            **kwargs
+        )
 
     def find_action(self, action_name):
         """Find an action by name.
