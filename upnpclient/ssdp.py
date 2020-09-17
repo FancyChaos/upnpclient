@@ -7,12 +7,18 @@ import select
 import ifaddr
 from urllib.parse import urlparse
 
-DISCOVER_TIMEOUT = 2
-SSDP_TARGET = ("239.255.255.250", 1900)
-SSDP_MX = DISCOVER_TIMEOUT
-ST_ALL = "ssdp:all"
-ST_ROOTDEVICE = "upnp:rootdevice"
 RESPONSE_REGEX = re.compile(r'\n(.*?)\: *(.*)\r')
+
+
+def create_ssdp_request(ssdp_st, ssdp_mx, ssdp_ip, ssdp_port):
+    """Return request bytes for given st and mx."""
+    return "\r\n".join([
+        'M-SEARCH * HTTP/1.1',
+        'ST: {}'.format(ssdp_st),
+        'MX: {:d}'.format(ssdp_mx),
+        'MAN: "ssdp:discover"',
+        'HOST: {}:{}'.format(ssdp_ip, ssdp_port),
+        '', '']).encode('utf-8')
 
 
 class SSDPResponse(object):
@@ -73,43 +79,41 @@ class SSDPResponse(object):
         return self.values.get('usn', '')
 
 
-def ssdp_request(ssdp_st, ssdp_mx=SSDP_MX):
-    """Return request bytes for given st and mx."""
-    return "\r\n".join([
-        'M-SEARCH * HTTP/1.1',
-        'ST: {}'.format(ssdp_st),
-        'MX: {:d}'.format(ssdp_mx),
-        'MAN: "ssdp:discover"',
-        'HOST: {}:{}'.format(*SSDP_TARGET),
-        '', '']).encode('utf-8')
-
-
-def scan(timeout=5):
+def scan(timeout=5, ssdp_ip="239.255.255.250", ssdp_port=1900, ssdp_st='ssdp:all', addr=None, ttl=1):
+    # TODO: Allow Unicast SSDP Discover scan (Maybe do a scan_unicast and scan_multicast function)
+    # TODO: Allow Setting of 'SEARCHPORT.UPNP.ORG' header to redirect ssdp responses
     # TODO: Comment this crazy code
+    if timeout < 2:
+        timeout = 2
+    ssdp_mx = timeout-1
     ssdp_responses = []
     sockets = []
-    ssdp_requests = [ssdp_request(ST_ALL), ssdp_request(ST_ROOTDEVICE)]
+    ssdp_request = create_ssdp_request(
+        ssdp_st=ssdp_st,
+        ssdp_mx=ssdp_mx,
+        ssdp_ip=ssdp_ip,
+        ssdp_port=ssdp_port
+    )
     stop_wait = datetime.now() + timedelta(seconds=timeout)
 
-    for addr in get_all_address():
+    if addr is None:
+        addr = get_all_address()
+    elif isinstance(addr, str):
+        addr = [addr]
+
+    for ip in addr:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # TTL is used for how many hops the packet can do before getting discarded.
-            # Default values for multicast is '1' so they won't escape the LAN.
-            # So this setting is complety obsolete and wrong!
-            # Can someone confirm before discarding the code?
-            #
-            # sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL,
-            #                SSDP_MX)
-            sock.bind((addr, 0))
+            # TODO: Check if unicast or multicast an set ttl accordingly
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+            sock.bind((ip, 0))
             sockets.append(sock)
         except socket.error:
             pass
 
-    for sock in [s for s in sockets]:
+    for sock in sockets:
         try:
-            for req in ssdp_requests:
-                sock.sendto(req, SSDP_TARGET)
+            sock.sendto(ssdp_request, (ssdp_ip, ssdp_port))
             sock.setblocking(False)
         except socket.error:
             sockets.remove(sock)
@@ -156,7 +160,8 @@ def get_all_address():
     Getting ipv4 addresses of local interfaces
     '''
     return list(set(
-        addr.ip for iface in ifaddr.get_adapters() for addr in iface.ips if addr.is_IPv4)
+        addr.ip for iface in ifaddr.get_adapters() for addr in iface.ips if addr.is_IPv4
+        )
     )
 
 
@@ -166,7 +171,7 @@ def discover(timeout=5):
     list of `upnp.Device` instances. Any invalid servers are silently
     ignored.
     """
-    ssdp_responses = scan(timeout)
+    ssdp_responses = scan(timeout=timeout)
 
     devices = []
     for resp in ssdp_responses:

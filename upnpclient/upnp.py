@@ -110,6 +110,8 @@ class Device(CallActionMixin):
 
         # Ignore an error while parsing an continue.
         # Happened to me due to a malformed URI on my Denon Receiver...
+        # TODO: Try normal first and do recovery if xmlerror occurred
+        # also set a 'parse_error' flag to let the programmer now something happened
         recovery_parser = etree.XMLParser(recover=True)
         root = etree.fromstring(resp.content, parser=recovery_parser)
         # Default if findtext failes is now a nil string ('')
