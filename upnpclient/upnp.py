@@ -113,7 +113,18 @@ class Device(CallActionMixin):
         )
         resp.raise_for_status()
 
-        root = etree.fromstring(resp.content)
+        # A flag to inform the programmer if an error occured during parsing
+        self.parse_error = False
+        try:
+            # Try to parse the xml file
+            root = etree.fromstring(resp.content)
+        except Exception:
+            # If the parsing failed, try again to parse in recovery mode.
+            # This will continue parsing, even if an error occurs.
+            recovery_parser = etree.XMLParser(recover=True)
+            root = etree.fromstring(resp.content, parser=recovery_parser)
+            self.parse_error = True
+
         findtext = partial(root.findtext, namespaces=root.nsmap, default="")
 
         self.device_type = findtext("device/deviceType").strip()
